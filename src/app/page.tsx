@@ -9,24 +9,11 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<any>(null);
 
-  // Since we migrated everything to Next.js, the backend is now hosted on the exact same server!
   const API_BASE = "";
-
-  const fmtRange = (start: number, end: number) => {
-    const s = Number(start) || 0;
-    const e = Number(end) || s;
-    const f = (sec: number) => {
-      const t = Math.floor(sec);
-      const m = Math.floor(t / 60);
-      const r = t % 60;
-      return m + ":" + String(r).padStart(2, "0");
-    };
-    return f(s) + " – " + f(e);
-  };
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus("Fetching transcript and generating insights…");
+    setStatus("Fetching transcript…");
     setStatusClass("status");
     setResults(null);
     setLoading(true);
@@ -38,21 +25,10 @@ export default function Home() {
         body: JSON.stringify({ url }),
       });
 
-      const rawText = await res.text();
-      let data: any = {};
-      if (rawText) {
-        try {
-          data = JSON.parse(rawText);
-        } catch {
-          throw new Error(
-            rawText.slice(0, 240) ||
-              "Server returned non-JSON. Is the API running?"
-          );
-        }
-      }
+      const data: any = await res.json();
 
       if (!res.ok) {
-        const msg = data.detail ?? data.message ?? rawText?.slice(0, 240) ?? `HTTP ${res.status}`;
+        const msg = data.detail ?? data.message ?? `HTTP ${res.status}`;
         throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
       }
 
@@ -69,11 +45,9 @@ export default function Home() {
 
   return (
     <div className="wrap border-box">
-      <h1>From link to takeaways</h1>
+      <h1>YouTube Transcript Viewer</h1>
       <p className="sub">
-        Paste a YouTube link. The server pulls the transcript and summarizes the{" "}
-        <strong>5 most useful Q&amp;As</strong> plus a <strong>timeline</strong>.{" "}
-        No API keys are stored or shown here.
+        Paste a YouTube link to pull the full transcript directly from the video.
       </p>
 
       <form onSubmit={handleAnalyze} className="flex flex-col gap-3">
@@ -94,66 +68,47 @@ export default function Home() {
           disabled={loading}
           className="self-start mt-1 px-5 py-3 border-none rounded-[10px] bg-gradient-to-br from-accent to-accent-dim text-[#041312] font-semibold text-[0.9rem] cursor-pointer transition hover:brightness-108 active:scale-[0.98] disabled:opacity-45 disabled:cursor-not-allowed disabled:transform-none"
         >
-          Analyze video
+          {loading ? "Fetching..." : "Get Transcript"}
         </button>
       </form>
       <p className={statusClass} aria-live="polite">
         {status}
       </p>
 
-      {/* The paragraph containing backend details was removed as requested. */}
-
-      {results && (
-        <section className="results show mt-10" aria-label="Results">
-          <h2>Top 5 questions &amp; answers</h2>
-          <div className="flex flex-col gap-4">
-            {results.qa_pairs?.map((item: any, i: number) => (
-              <article key={i} className="qa-card">
-                <div className="font-semibold mb-2 text-base">
-                  {i + 1}. {item.question}
-                </div>
-                <div className="text-muted text-[0.92rem] mb-2">{item.answer}</div>
-                <div className="text-[0.8rem] text-muted">
-                  Time: {item.timestamp || fmtRange(item.start_sec, item.end_sec)}{" "}
-                  ·{" "}
-                  <a href={item.watch_url} target="_blank" rel="noopener noreferrer">
-                    Watch at this section
-                  </a>
-                </div>
-              </article>
+      {results && results.transcript && (
+        <section className="results show mt-10" aria-label="Transcript">
+          <h2>Video Transcript</h2>
+          <div className="flex flex-col gap-2 max-h-[600px] overflow-y-auto p-4 rounded-[10px] border border-border bg-black/20">
+            {results.transcript.map((item: any, i: number) => (
+              <div key={i} className="flex gap-4 p-2 hover:bg-white/5 rounded transition text-[0.92rem]">
+                <a 
+                  href={item.watch_url} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="text-accent font-mono shrink-0 w-[60px]"
+                >
+                  [{item.timestamp}]
+                </a>
+                <span className="text-text">{item.text}</span>
+              </div>
             ))}
           </div>
-
-          <div className="mt-9">
-            <h2>Timeline</h2>
-            <div>
-              {results.timeline?.map((row: any, i: number) => (
-                <div key={i} className="tl-row">
-                  <div className="tl-time text-warn font-semibold tabular-nums whitespace-nowrap">
-                    {fmtRange(row.start_sec, row.end_sec)}
-                  </div>
-                  <div>
-                    <div className="font-semibold mb-1">{row.label}</div>
-                    <div className="text-muted text-[0.88rem]">{row.summary}</div>
-                    <a
-                      href={row.watch_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[0.8rem] text-accent mt-1 inline-block"
-                    >
-                      Open
-                    </a>
-                  </div>
-                </div>
-              ))}
-            </div>
+          
+          <div className="mt-4">
+            <a 
+              href={results.watch_url} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-sm text-muted underline decoration-accent/30 hover:text-accent transition"
+            >
+              Watch original video on YouTube
+            </a>
           </div>
         </section>
       )}
 
       <footer className="mt-12 text-[0.75rem] text-muted">
-        Answers are model-generated from the transcript; verify important claims
-        against the video.
+        Transcripts are retrieved via SerpApi and reflect the closed captions available for the video.
       </footer>
     </div>
   );
