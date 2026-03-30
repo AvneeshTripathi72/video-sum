@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { YoutubeTranscript } from 'youtube-transcript';
 
 const YOUTUBE_ID_RE = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([A-Za-z0-9_-]{11})/;
 
@@ -18,42 +19,62 @@ function secondsToTs(s: number): string {
 
 export async function POST(req: Request) {
   try {
-    const { url } = await req.json();
+    const { url, method = 'serpapi' } = await req.json();
     if (!url) return NextResponse.json({ detail: "No URL provided" }, { status: 400 });
 
     const vidId = extractYoutubeId(url);
     if (!vidId) return NextResponse.json({ detail: "Invalid YouTube URL" }, { status: 400 });
 
-    const serpKey = process.env.SERP_API_KEY;
-    if (!serpKey) {
-      return NextResponse.json({ detail: "Server error: No SerpApi key provided." }, { status: 500 });
-    }
-
-    // Fetch Transcript from SerpApi
-    console.log(`[API] Fetching transcript for: ${vidId}`);
-    const serpUrl = `https://serpapi.com/search.json?engine=youtube_video_transcript&v=${vidId}&api_key=${serpKey}`;
-    const serpRes = await fetch(serpUrl);
-    const serpData = await serpRes.json();
-
-    if (!serpData.transcript) {
-      const errorMsg = serpData.error || "No transcript found";
-      console.error(`[SerpApi Error] ${errorMsg}`);
-      return NextResponse.json({ detail: `Could not retrieve a transcript for the video via SerpApi! Error: ${errorMsg}` }, { status: 500 });
-    }
-
     const watchBase = `https://www.youtube.com/watch?v=${vidId}`;
-    const transcript = serpData.transcript.map((s: any) => ({
-      text: (s.snippet || "").trim(),
-      start_sec: Math.floor(Number(s.start_ms || 0) / 1000.0),
-      timestamp: secondsToTs(Number(s.start_ms || 0) / 1000.0),
-      watch_url: `${watchBase}&t=${Math.floor(Number(s.start_ms || 0) / 1000.0)}`
-    }));
+    let transcriptData: any[] = [];
+
+    if (method === 'api') {
+      // Method: Use youtube-transcript (JS local API)
+      console.log(`[API] Fetching transcript via Local API for: ${vidId}`);
+      try {
+        const res = await YoutubeTranscript.fetchTranscript(vidId);
+        transcriptData = res.map((s: any) => ({
+          text: (s.text || "").trim(),
+          start_sec: Math.floor(Number(s.offset || 0) / 1000.0),
+          // Actually, youtube-transcript offset is in milliseconds so division by 1000 is usually needed
+          timestamp: secondsToTs(Number(s.offset || 0) / 1000.0),
+          watch_url: `${watchBase}&t=${Math.floor(Number(s.offset || 0) / 1000.0)}`
+        }));
+      } catch (e: any) {
+        console.error(`[Local API Error] ${e.message}`);
+        return NextResponse.json({ detail: `Local API failed to fetch transcript! Error: ${e.message}` }, { status: 500 });
+      }
+    } else {
+      // Method: Use SerpApi (Default)
+      const serpKey = process.env.SERP_API_KEY;
+      if (!serpKey) {
+        return NextResponse.json({ detail: "Server error: No SerpApi key provided." }, { status: 500 });
+      }
+
+      console.log(`[SerpApi] Fetching transcript for: ${vidId}`);
+      const serpUrl = `https://serpapi.com/search.json?engine=youtube_video_transcript&v=${vidId}&api_key=${serpKey}`;
+      const serpRes = await fetch(serpUrl);
+      const serpData = await serpRes.json();
+
+      if (!serpData.transcript) {
+        const errorMsg = serpData.error || "No transcript found";
+        console.error(`[SerpApi Error] ${errorMsg}`);
+        return NextResponse.json({ detail: `SerpApi failed to fetch transcript! Error: ${errorMsg}` }, { status: 500 });
+      }
+
+      transcriptData = serpData.transcript.map((s: any) => ({
+        text: (s.snippet || "").trim(),
+        start_sec: Math.floor(Number(s.start_ms || 0) / 1000.0),
+        timestamp: secondsToTs(Number(s.start_ms || 0) / 1000.0),
+        watch_url: `${watchBase}&t=${Math.floor(Number(s.start_ms || 0) / 1000.0)}`
+      }));
+    }
 
     return NextResponse.json({
       video_id: vidId,
       watch_url: watchBase,
-      transcript: transcript,
-      source: "serpapi_direct"
+      transcript: transcriptData,
+      source: method === 'api' ? "local_api" : "serpapi"
     });
   } catch (err: any) {
     console.error("[General Error]", err);
