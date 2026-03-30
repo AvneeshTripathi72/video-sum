@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import Groq from 'groq-sdk';
 
 const MAX_TRANSCRIPT_CHARS = 190000;
@@ -86,6 +85,29 @@ function finalizeResult(data: any, vidId: string, frequentTerms: string[], sourc
   };
 }
 
+/**
+ * Robustly parses a JSON string from LLM output by finding the first '{' and last '}'
+ */
+function parseLLMJson(text: string) {
+  try {
+    // Try simple parse first
+    return JSON.parse(text);
+  } catch (e) {
+    // Attempt cleanup
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      const cleaned = text.substring(start, end + 1);
+      try {
+        return JSON.parse(cleaned);
+      } catch (e2) {
+        throw new Error(`Failed to parse JSON even after cleanup. Content: ${text.slice(0, 100)}...`);
+      }
+    }
+    throw e;
+  }
+}
+
 export async function POST(req: Request) {
   try {
     const { url } = await req.json();
@@ -94,24 +116,30 @@ export async function POST(req: Request) {
     const vidId = extractYoutubeId(url);
     if (!vidId) return NextResponse.json({ detail: "Invalid YouTube URL" }, { status: 400 });
 
-    const serpKey = process.env.SERP_API_KEY || "50793bbdbbd26bba2fbdc1b09ab861005e5f8da8b4ff09d8ba46bedc48b9b9ba";
+    const serpKey = process.env.SERP_API_KEY;
     const groqKey = process.env.GROQ_API_KEY;
-    const geminiKey = process.env.GEMINI_API_KEY;
 
-    if (!groqKey && !geminiKey) {
-      return NextResponse.json({ detail: "Server error: No AI API key provided for processing." }, { status: 500 });
+    if (!serpKey) {
+      return NextResponse.json({ detail: "Server error: No SerpApi key provided." }, { status: 500 });
+    }
+
+    if (!groqKey) {
+      return NextResponse.json({ detail: "Server error: No Groq API key provided." }, { status: 500 });
     }
 
     // 1. Fetch Transcript from SerpApi
+    console.log(`[API] Processing video: ${vidId}`);
     const serpUrl = `https://serpapi.com/search.json?engine=youtube_video_transcript&v=${vidId}&api_key=${serpKey}`;
     const serpRes = await fetch(serpUrl);
     const serpData = await serpRes.json();
 
     if (!serpData.transcript) {
       const errorMsg = serpData.error || "No transcript found";
+      console.error(`[SerpApi Error] ${errorMsg}`);
       return NextResponse.json({ detail: `Could not retrieve a transcript for the video via SerpApi! Error: ${errorMsg}` }, { status: 500 });
     }
 
+    console.log(`[API] Transcript fetched. Processing segments...`);
     const segments = serpData.transcript.map((s: any) => ({
       text: (s.snippet || "").trim(),
       start: Number(s.start_ms || 0) / 1000.0,
@@ -129,45 +157,30 @@ export async function POST(req: Request) {
     const prompt = buildAnalysisPrompt(vidId, transcriptBlock, frequentTerms);
 
     // 2. Try Groq
-    if (groqKey) {
-      try {
-        const groq = new Groq({ apiKey: groqKey });
-        const completion = await groq.chat.completions.create({
-          messages: [
-            { role: "system", content: "You reply with only a single JSON object matching the user's schema. No markdown." },
-            { role: "user", content: prompt }
-          ],
-          model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-          temperature: 0.2,
-          max_tokens: 8192
-        });
+    try {
+      console.log(`[API] Attempting Groq analysis (${process.env.GROQ_MODEL || "llama-3.3-70b-versatile"})...`);
+      const groq = new Groq({ apiKey: groqKey });
+      const completion = await groq.chat.completions.create({
+        messages: [
+          { role: "system", content: "You reply with only a single JSON object matching the user's schema. No markdown." },
+          { role: "user", content: prompt }
+        ],
+        model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+        temperature: 0.2,
+        max_tokens: 8192,
+        response_format: { type: "json_object" }
+      });
 
-        let raw = completion.choices[0]?.message?.content || "";
-        raw = raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "").trim();
-        const data = JSON.parse(raw);
-        return NextResponse.json(finalizeResult(data, vidId, frequentTerms, "groq"));
-      } catch (e: any) {
-        console.error("Groq fallback", e);
-      }
+      const raw = completion.choices[0]?.message?.content || "";
+      const data = parseLLMJson(raw);
+      console.log(`[API] Groq analysis successful.`);
+      return NextResponse.json(finalizeResult(data, vidId, frequentTerms, "groq"));
+    } catch (e: any) {
+      console.error("[Groq Error]", e.message || e);
+      return NextResponse.json({ detail: `AI Processing (Groq) failed: ${e.message || "Unknown error"}` }, { status: 500 });
     }
-
-    // 3. Try Gemini
-    if (geminiKey) {
-      try {
-        const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await model.generateContent(prompt);
-        let raw = result.response.text() || "";
-        raw = raw.replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "").trim();
-        const data = JSON.parse(raw);
-        return NextResponse.json(finalizeResult(data, vidId, frequentTerms, "gemini"));
-      } catch (e: any) {
-        console.error("Gemini fallback", e);
-      }
-    }
-
-    return NextResponse.json({ detail: "AI processing failed. Please check logs." }, { status: 500 });
   } catch (err: any) {
+    console.error("[General Error]", err);
     return NextResponse.json({ detail: err.message }, { status: 500 });
   }
 }
