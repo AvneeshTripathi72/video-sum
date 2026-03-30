@@ -1,36 +1,31 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# RAG Eval — Next.js Edition
 
-## Getting Started
+A full-stack Next.js application that analyzes YouTube videos to summarize the 5 most useful Q&As and generate a comprehensive timeline. 
 
-First, run the development server:
+Built exclusively with **Next.js (App Router)** and integrates directly with **Gemini / Groq + SERP API**.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## 🛠 Setup
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+2. **Configure Environment Variables:**
+   Create a `.env.local` file in the root of the project with the following keys:
+   - `SERP_API_KEY` (Required for transcripts)
+   - `GROQ_API_KEY` (Required for fast summarization)
+   - `GEMINI_API_KEY` (Optional fallback for Groq summarization)
+   - `GROQ_MODEL` (Optional, defaults to `llama-3.3-70b-versatile`)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+3. **Run the local development server:**
+   ```bash
+   npm run dev
+   ```
+   Open `http://localhost:3000` inside your browser.
 
-## Learn More
+## 🚀 Deployment (Vercel)
 
-To learn more about Next.js, take a look at the following resources:
+Ensure all variables exist within Vercel's Environment Variables panel before deploying. Because this app is now structured entirely via Next.js App Router, it can be deployed to **Vercel** with zero extra config!
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+No Python background service is required anymore!
