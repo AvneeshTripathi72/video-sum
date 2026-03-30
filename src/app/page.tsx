@@ -32,7 +32,7 @@ export default function Home() {
     setLoading(true);
 
     try {
-      const res = await fetch(API_BASE + "/analyze-video", {
+      const res = await fetch(API_BASE + "/api/analyze-video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url }),
